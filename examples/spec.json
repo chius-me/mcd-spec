@@ -1,0 +1,12 @@
+{
+  "budget": 40,
+  "maxKcal": 700,
+  "avoid": ["可乐", "酸黄瓜"],
+  "drink": "无糖",
+  "want": ["鸡腿堡"],
+  "quantity": 1,
+  "scene": "pickup",
+  "city": "上海",
+  "place": "人民广场",
+  "useCoupon": true
+}

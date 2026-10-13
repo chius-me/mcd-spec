@@ -1,0 +1,175 @@
+{
+  "store": {
+    "storeCode": "EX-1001",
+    "beCode": "EX-2001",
+    "storeName": "示例餐厅",
+    "address": "示例地址，非真实门店",
+    "businessStatus": true
+  },
+  "menu": {
+    "frequent": [],
+    "categories": [
+      {
+        "name": "人气热卖",
+        "meals": [
+          {"code": "1002", "tags": []},
+          {"code": "1001", "tags": []},
+          {"code": "1004", "tags": []},
+          {"code": "1005", "tags": []},
+          {"code": "1003", "tags": []}
+        ]
+      }
+    ],
+    "meals": {
+      "1002": {
+        "name": "板烧鸡腿堡",
+        "currentPrice": "28",
+        "originalPrice": "28",
+        "discountType": null
+      },
+      "1001": {
+        "name": "麦辣鸡腿堡套餐",
+        "currentPrice": "36",
+        "originalPrice": "36",
+        "discountType": null
+      },
+      "1004": {
+        "name": "麦乐鸡套餐",
+        "currentPrice": "22",
+        "originalPrice": "22",
+        "discountType": null
+      },
+      "1005": {
+        "name": "薯条中",
+        "currentPrice": "12",
+        "originalPrice": "12",
+        "discountType": null
+      },
+      "1003": {
+        "name": "巨无霸套餐",
+        "currentPrice": "45",
+        "originalPrice": "45",
+        "discountType": null
+      }
+    }
+  },
+  "details": {
+    "1002": {
+      "code": "1002",
+      "name": "板烧鸡腿堡",
+      "price": "28",
+      "rounds": [],
+      "modification": {
+        "items": [
+          {
+            "values": [
+              {
+                "code": "100201",
+                "name": "酸黄瓜",
+                "minQuantity": 0,
+                "maxQuantity": 1,
+                "selectedQuantity": 1,
+                "selectedKey": "0-1",
+                "unselectedKey": "0-0"
+              }
+            ]
+          }
+        ]
+      },
+      "supportModify": true
+    },
+    "1001": {
+      "code": "1001",
+      "name": "麦辣鸡腿堡套餐",
+      "price": "36",
+      "rounds": [
+        {
+          "round": 1,
+          "name": "主食",
+          "choices": [
+            {"code": "1440", "name": "麦辣鸡腿堡", "quantity": 1, "isDefault": true}
+          ]
+        },
+        {
+          "round": 2,
+          "name": "小食",
+          "choices": [
+            {"code": "4810", "name": "薯条中", "quantity": 1, "isDefault": true}
+          ]
+        },
+        {
+          "round": 3,
+          "name": "饮料",
+          "choices": [
+            {"code": "3070", "name": "可口可乐中杯", "quantity": 1, "isDefault": true},
+            {"code": "3071", "name": "无糖可口可乐中杯", "quantity": 1, "isDefault": false}
+          ]
+        }
+      ],
+      "modification": {
+        "items": [
+          {
+            "values": [
+              {
+                "code": "100201",
+                "name": "酸黄瓜",
+                "minQuantity": 0,
+                "maxQuantity": 1,
+                "selectedQuantity": 1,
+                "selectedKey": "0-1",
+                "unselectedKey": "0-0"
+              }
+            ]
+          }
+        ]
+      },
+      "supportModify": true
+    },
+    "1004": {
+      "code": "1004",
+      "name": "麦乐鸡套餐",
+      "price": "22",
+      "rounds": [
+        {
+          "round": 1,
+          "name": "饮料",
+          "choices": [
+            {"code": "3070", "name": "可口可乐中杯", "quantity": 1, "isDefault": true}
+          ]
+        }
+      ],
+      "modification": {"items": []},
+      "supportModify": false
+    },
+    "1005": {
+      "code": "1005",
+      "name": "薯条中",
+      "price": "12",
+      "rounds": [],
+      "modification": {"items": []},
+      "supportModify": false
+    }
+  },
+  "nutrition": "[6]{productName,nutritionDescription,energyKj,energyKcal,protein,fat,carbohydrate,sodium,calcium}:\n  麦辣鸡腿堡,null,1883,450,22,22,36,900,120\n  薯条中,null,1339,320,4,15,42,270,20\n  无糖可口可乐中杯,null,4,1,0,0,0,20,0\n  可口可乐中杯,null,594,142,0,0,35,20,0\n  板烧鸡腿堡,null,2259,540,27,22,48,980,150\n  麦乐鸡套餐,null,2176,520,24,24,46,1100,80\n",
+  "coupons": [
+    {
+      "title": "板烧立减5元",
+      "couponId": "demo-coupon-ban",
+      "couponCode": "demo-code-ban",
+      "products": [
+        {"productCode": "1002", "productName": "板烧鸡腿堡"}
+      ]
+    }
+  ],
+  "pricesFen": {
+    "1001": 3600,
+    "1002": 2800,
+    "1004": 2200,
+    "1005": 1200
+  },
+  "couponCutsFen": {
+    "demo-coupon-ban": {
+      "1002": 500
+    }
+  }
+}

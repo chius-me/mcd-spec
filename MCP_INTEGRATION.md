@@ -1,0 +1,39 @@
+# MCP 接入说明
+
+mcd-spec 连接麦当劳中国官方 MCP Server，把一份点餐规格编译成已经核过价的购物车。服务器地址是 `https://mcp.mcd.cn`，传输协议是 Streamable HTTP，协议版本 `2025-06-18`。身份放在请求头 `Authorization: Bearer ${MCD_MCP_TOKEN}`。令牌只从环境变量读取。
+
+本项目只做查询和核价。不调用 `create-order`、`cancel-order`、`auto-bind-coupons`、`draw-lottery`、`mall-create-order`。
+
+## 用到的工具
+
+| 工具 | 用途 |
+|---|---|
+| now-time-info | `doctor` 用来确认令牌和网络是否可用 |
+| query-nearby-stores | 到店或得来速时，按城市和地点找门店。`searchType=2`，到店 `beType=1`，得来速 `beType=5` |
+| delivery-query-addresses | 外送时读取账号里已有的配送地址。多个地址时停下来请用户选择，不猜 |
+| delivery-query-stores | 按地址查找可配送门店，`beType=2` |
+| query-meals | 读取该门店当前可售餐品。菜单里的 `currentPrice` 是元，只用来做预算预筛 |
+| query-meal-detail | 读取套餐子项和特调。忌口会变成 `modification`，换饮料会变成 `roundList` |
+| list-nutrition-foods | 读取营养表。返回的是 TOON 紧凑表，不是 JSON 数组 |
+| query-store-coupons | 读取当前门店、当前取餐方式下可用的券，里面有 `couponId`、`couponCode` 和适用餐品 |
+| calculate-price | 对编译出的购物车核价。返回的 `price`、`discount` 单位是分，展示前除以 100 |
+
+到店取餐使用 `orderType=1`、`beType=1`。得来速使用 `orderType=1`、`beType=5`。麦乐送使用 `orderType=2`、`beType=2`。
+
+## 调用流程
+
+1. 确定场景和门店。用户给了门店编码和 BE 编码就直接用。否则到店、得来速走附近门店搜索，外送先取地址再查可配送门店。优先选 `businessStatus` 为营业中的店。
+2. 调 `query-meals` 得到餐品编码、名称和菜单标价。名称已经包含忌口词的餐品直接排除。标价乘以份数已经超过预算的也先排除。
+3. 调一次 `list-nutrition-foods`，按餐品名称匹配热量和蛋白质。同时调 `query-store-coupons`。券查询失败时继续，按无券核价，并在结果里写明。
+4. 先保留名称命中「想吃」的餐品，再按标价从低到高补足，最多拿 6 个去调 `query-meal-detail`。
+5. 把详情编译成购物车条目。特调里命中忌口、且最少数量允许为 0 的配料，写成 `quantity: 0` 和详情里的 `unselectedKey`。套餐每个子项选择一个不命中忌口的选项；用户指定了饮料偏好时，优先选名称里包含该偏好的选项。选中的子项写入 `roundList`。
+6. 对每个能编出来的条目调用 `calculate-price`。有适用券时，最多再拿 2 张券各核一次价，留下应付更低的那一次。券没有把价格降下来，就退回无券购物车。
+7. 用核价而不是菜单标价判断预算。热量已知且不超过上限、核价成功、忌口都能表达，才标成「满足」。想吃和饮料偏好用来排序，不会把一份更便宜但没点名的餐品排到点名餐品前面。
+
+## 业务价值
+
+菜单接口只给编码、名称和标价，真正能不能去掉酸黄瓜、能不能把可乐换成无糖，要看详情里的特调和子项。券能不能用在这份餐上，也要等 `calculate-price` 才知道。mcd-spec 把这几步收成一次编译：输入是约束，输出是一份带调整说明、热量和应付金额的购物车。用户拿着这个结果自己决定买不买。
+
+## 已知限制
+
+标价预筛发生在核价之前，所以一张券才能把餐品拉进预算时，这份餐可能不会被选中。营养表按名称匹配，对不上的子项会使该方案的热量记为未知，有热量上限时就不会算作满足。配料增减不改热量数字，输出里会注明。
