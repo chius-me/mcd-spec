@@ -64,6 +64,19 @@ class ClientTest(unittest.TestCase):
                 },
             })
 
+    def test_markdown_wrapper_unwraps_the_business_object(self):
+        text = (
+            "# API Response Information\n\n"
+            "## Original Response\n\n"
+            '{"success":true,"code":200,"message":"请求成功",'
+            '"data":{"formatted":"2026-10-13 16:46:24"}}'
+            "## 展示结果时不要省略字段"
+        )
+        payload = unwrap_tool_result({
+            "result": {"content": [{"type": "text", "text": text}]},
+        })
+        self.assertEqual(payload["formatted"], "2026-10-13 16:46:24")
+
 
 class CatalogContractTest(unittest.TestCase):
     def test_pickup_search_arguments(self):
@@ -96,6 +109,18 @@ class CatalogContractTest(unittest.TestCase):
             "orderType": 1,
             "beType": 1,
         })
+        numeric = ScriptedClient({
+            "query-nearby-stores": [{
+                "storeCode": "S2",
+                "storeName": "数字距离",
+                "distance": 144,
+                "businessStatus": True,
+            }],
+        })
+        numbered = McpCatalog(numeric).resolve_store(spec)
+        self.assertEqual(numbered.distance, "144米")
+        self.assertEqual(numbered.be_code, "")
+        self.assertNotIn("beCode", McpCatalog(numeric).context(numbered, spec))
 
     def test_multiple_addresses_do_not_leak_phone_numbers(self):
         client = ScriptedClient({
@@ -118,6 +143,9 @@ class CatalogContractTest(unittest.TestCase):
         store = McpCatalog(client).resolve_store(Spec(store_code="S9", be_code="B9"))
         self.assertEqual(store.name, "指定门店")
         self.assertEqual(client.calls, [])
+        bare = McpCatalog(ScriptedClient({})).resolve_store(Spec(store_code="S9"))
+        self.assertEqual(bare.store_code, "S9")
+        self.assertEqual(bare.be_code, "")
 
 
 class ScriptedClient:

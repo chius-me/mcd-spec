@@ -53,8 +53,8 @@ class McpCatalog:
         self.client = client
 
     def resolve_store(self, spec: Spec) -> Store:
-        if spec.store_code and spec.be_code:
-            return Store(spec.store_code, spec.be_code, name="指定门店")
+        if spec.store_code:
+            return Store(spec.store_code, spec.be_code or "", name="指定门店")
         if spec.scene == "delivery":
             payload = self.client.call_tool("delivery-query-addresses", {})
             addresses = []
@@ -208,9 +208,18 @@ def pick_store(rows: list[dict]) -> Store:
         be_code=str(chosen.get("beCode") or ""),
         name=str(chosen.get("storeName") or "麦当劳餐厅"),
         address=str(chosen.get("address") or ""),
-        distance=str(chosen.get("distance") or ""),
+        distance=_distance_text(chosen.get("distance")),
         open=None if status is None else bool(status),
     )
+
+
+def _distance_text(value) -> str:
+    if isinstance(value, bool) or value is None or value == "":
+        return ""
+    if isinstance(value, (int, float)):
+        number = int(value) if float(value).is_integer() else value
+        return f"{number}米"
+    return str(value)
 
 
 def _select_address(addresses: list, address_id: str | None) -> dict:

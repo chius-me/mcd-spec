@@ -169,6 +169,8 @@ def unwrap_tool_result(message: dict):
     text = _text_from_result(result)
     if text:
         parsed = _try_json(text)
+        if parsed is None:
+            parsed = extract_embedded_json(text)
         if parsed is not None:
             return unwrap_business(parsed)
         return text
@@ -195,6 +197,26 @@ def _text_from_result(result: dict) -> str:
         if isinstance(item, dict) and item.get("type", "text") == "text":
             parts.append(str(item.get("text") or ""))
     return "\n".join(part for part in parts if part).strip()
+
+
+def extract_embedded_json(text: str):
+    """Pull the business JSON out of the markdown wrapper the server adds."""
+    decoder = json.JSONDecoder()
+    found = None
+    index = 0
+    while index < len(text):
+        start = text.find("{", index)
+        if start < 0:
+            break
+        try:
+            obj, end = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            index = start + 1
+            continue
+        if isinstance(obj, dict) and "success" in obj:
+            found = obj
+        index = start + max(end, 1)
+    return found
 
 
 def _try_json(text: str):

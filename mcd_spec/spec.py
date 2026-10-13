@@ -54,11 +54,11 @@ class Spec:
             raise SpecError("场景只能是 pickup、drive 或 delivery")
         if demo:
             return
-        pinned = bool(self.store_code and self.be_code)
+        pinned = bool(self.store_code)
         if self.scene in ("pickup", "drive") and not pinned:
             if not self.city or not self.place:
                 raise SpecError(
-                    "到店或得来速需要 --city 和 --place，或同时提供 --store-code 与 --be-code"
+                    "到店或得来速需要 --city 和 --place，或提供 --store-code"
                 )
         if self.scene == "delivery" and not pinned and not self.address_id:
             # A single saved address can still be resolved later. Multiple

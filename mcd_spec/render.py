@@ -141,7 +141,7 @@ def _omitted_line(plans: list[Plan]) -> str:
         reason, count = next(iter(reasons.items()))
         return f"另有 {count} 个方案未展示：{reason}。"
     parts = [f"{count} 个{reason}" for reason, count in reasons.items()]
-    return "另有 " + "、".join(parts) + "未展示。"
+    return "另有 " + "、".join(parts) + "，未展示。"
 
 
 def _plan_dict(plan: Plan) -> dict:

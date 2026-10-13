@@ -15,7 +15,7 @@ from mcd_spec.nutrition import load_nutrition, lookup_nutrition
 from mcd_spec.spec import Spec, SpecError
 
 
-MAX_DETAILS = 6
+MAX_DETAILS = 8
 
 
 @dataclass
@@ -73,9 +73,27 @@ def compile_spec(spec: Spec, catalog: Catalog, *, limit: int = 3) -> CompileResu
             result.warnings.append(f"门店优惠券没有取到，这次按无券核价：{exc}")
     products = list(iter_menu(menu))
     result.menu_count = len(products)
+    coupon_codes = _coupon_product_codes(coupons)
+    known_codes = {product.code for product in products}
+    synthetic_codes: set[str] = set()
+    for coupon in coupons:
+        for raw in coupon.get("products") or []:
+            if not isinstance(raw, dict):
+                continue
+            code = str(raw.get("productCode") or "")
+            name = str(raw.get("productName") or coupon.get("title") or "")
+            if not code or not name or code in known_codes:
+                continue
+            products.append(_Product(code, name, None))
+            known_codes.add(code)
+            synthetic_codes.add(code)
     budget_fen = None if spec.budget_yuan is None else int(round(spec.budget_yuan * 100))
+    seen_terms: set[str] = set()
     kept = []
     for product in products:
+        for term in spec.avoid:
+            if _has_term(product.name, term):
+                seen_terms.add(term)
         if avoid_hit(product.name, spec.avoid, spec.drink):
             result.skipped += 1
             continue
@@ -86,25 +104,40 @@ def compile_spec(spec: Spec, catalog: Catalog, *, limit: int = 3) -> CompileResu
         ):
             result.skipped += 1
             continue
-        product.want_hits = sum(1 for term in spec.want if term and term in product.name)
+        product.want_hits = sum(1 for term in spec.want if _has_term(product.name, term))
         kept.append(product)
-    wanted = [product for product in kept if product.want_hits]
-    others = [product for product in kept if not product.want_hits]
-    wanted.sort(key=lambda product: product.menu_price_fen if product.menu_price_fen is not None else 10**12)
-    others.sort(key=lambda product: product.menu_price_fen if product.menu_price_fen is not None else 10**12)
-    chosen = (wanted + others)[:MAX_DETAILS]
+    menu_kept = [product for product in kept if product.code not in synthetic_codes]
+    chosen = _select_for_detail(menu_kept, spec, coupon_codes - synthetic_codes)
+    extras = [product for product in kept if product.code in synthetic_codes][:2]
     plans = []
-    for product in chosen:
+    for product in extras + chosen:
+        if product.code in synthetic_codes:
+            built = _build_bare(product, spec, rows)
+            built.notes.insert(0, "这张券对应的商品不在菜单详情里，按券商品直接核价")
+            _price_cart(built, catalog, ctx, coupons, spec)
+            plans.append(_to_plan(built, spec, ctx, budget_fen))
+            continue
         try:
             detail = catalog.meal_detail(ctx, product.code)
         except McpError as exc:
-            result.warnings.append(f"{product.name} 的详情没有取到：{exc}")
+            if product.code not in coupon_codes:
+                result.warnings.append(f"{product.name} 的详情没有取到：{exc}")
+                continue
+            built = _build_bare(product, spec, rows)
+            built.notes.insert(0, "这张券对应的商品不在菜单详情里，按券商品直接核价")
+            _price_cart(built, catalog, ctx, coupons, spec)
+            plans.append(_to_plan(built, spec, ctx, budget_fen))
             continue
         result.detailed += 1
+        _mark_detail_terms(detail, spec, seen_terms)
         built = _build_cart(product, detail, spec, rows)
         if not built.blockers:
             _price_cart(built, catalog, ctx, coupons, spec)
         plans.append(_to_plan(built, spec, ctx, budget_fen))
+    missing = [term for term in spec.avoid if term not in seen_terms]
+    if missing:
+        joined = "、".join(f"「{term}」" for term in missing)
+        result.warnings.append(f"这次看到的餐品可选项里没有{joined}，没法确认已经去掉。")
     plans.sort(key=lambda plan: _sort_key(plan, spec))
     result.plans = plans[:limit]
     result.omitted = plans[limit:]
@@ -118,12 +151,144 @@ def avoid_hit(name: str, avoid: tuple[str, ...], drink: str | None) -> str | Non
     avoided word, so「不要可乐、饮料无糖」仍可选「无糖可口可乐」.
     """
     for term in avoid:
-        if not term or term not in name:
+        if not _has_term(name, term):
             continue
-        if drink and drink in name:
+        if drink and _has_term(name, drink):
             continue
         return term
     return None
+
+
+def _has_term(name: str, term: str) -> bool:
+    """Match 鸡腿堡 against 鸡腿汉堡 without treating every short word as equal."""
+    if not term:
+        return False
+    return _fold(term) in _fold(name)
+
+
+def _fold(value: str) -> str:
+    return value.replace("汉堡", "堡")
+
+
+def _coupon_product_codes(coupons) -> set[str]:
+    codes = set()
+    for coupon in coupons:
+        if not isinstance(coupon, dict):
+            continue
+        for raw in coupon.get("products") or []:
+            if isinstance(raw, dict) and raw.get("productCode"):
+                codes.add(str(raw["productCode"]))
+    return codes
+
+
+def _select_for_detail(kept, spec: Spec, coupon_codes: set[str]):
+    """Pick a few menus items whose details are worth a request.
+
+    Coupon meals stay in front. When a drink was requested, combos come
+    before single items, because a single burger usually cannot swap drinks.
+    """
+
+    def price_key(product: _Product):
+        return product.menu_price_fen if product.menu_price_fen is not None else 10**12
+
+    coupons = sorted((product for product in kept if product.code in coupon_codes), key=price_key)
+    wanted = sorted(
+        (product for product in kept if product.want_hits and product.code not in coupon_codes),
+        key=price_key,
+    )
+    others = sorted(
+        (product for product in kept if not product.want_hits and product.code not in coupon_codes),
+        key=price_key,
+    )
+    if spec.drink:
+        want_combos = [product for product in wanted if "套" in product.name]
+        want_other = [product for product in wanted if "套" not in product.name]
+        other_combos = [product for product in others if "套" in product.name]
+        other_rest = [product for product in others if "套" not in product.name]
+        groups = (
+            coupons[:2],
+            want_combos[:4],
+            want_other,
+            want_combos[4:],
+            other_combos,
+            other_rest,
+            coupons[2:],
+        )
+    else:
+        groups = (coupons[:2], wanted, others, coupons[2:])
+    chosen = []
+    seen: set[str] = set()
+    for group in groups:
+        for product in group:
+            if product.code in seen:
+                continue
+            chosen.append(product)
+            seen.add(product.code)
+            if len(chosen) >= MAX_DETAILS:
+                return chosen
+    return chosen
+
+
+def _removed_modifications(source: dict, spec: Spec):
+    values = []
+    notes = []
+    blockers = []
+    changed = False
+    for option in _modification_values(source):
+        option_name = _option_name(option)
+        if not avoid_hit(option_name, spec.avoid, spec.drink):
+            continue
+        selected = _as_int(option.get("selectedQuantity"), 1)
+        minimum = _as_int(option.get("minQuantity"), 0)
+        if selected <= 0:
+            continue
+        if minimum > 0:
+            blockers.append(f"无法去掉「{option_name}」")
+            continue
+        code = option.get("code")
+        if code in (None, ""):
+            blockers.append(f"「{option_name}」缺少特调编码")
+            continue
+        entry = {"code": str(code), "quantity": 0}
+        if option.get("unselectedKey") not in (None, ""):
+            entry["key"] = option.get("unselectedKey")
+        values.append(entry)
+        notes.append(f"去掉{option_name}")
+        changed = True
+    return values, notes, blockers, changed
+
+
+def _build_bare(product: _Product, spec: Spec, rows: list[dict]) -> _Built:
+    kcal, protein = _sum_nutrition(rows, [product.name])
+    notes = []
+    if spec.drink:
+        notes.append(f"没有名称包含「{spec.drink}」的可选项")
+    return _Built(
+        product=product,
+        item={"productCode": product.code, "quantity": spec.quantity},
+        notes=notes,
+        blockers=[],
+        component_names=[],
+        kcal=kcal,
+        protein=protein,
+        drink_met=False,
+        modification_changed=False,
+    )
+
+
+def _mark_detail_terms(detail: dict, spec: Spec, found: set[str]) -> None:
+    sources = [_modification_values(detail)]
+    for rnd in _rounds(detail):
+        for choice in _round_choices(rnd):
+            for term in spec.avoid:
+                if _has_term(_option_name(choice), term):
+                    found.add(term)
+            sources.append(_modification_values({"modification": choice.get("modification")}))
+    for values in sources:
+        for value in values:
+            for term in spec.avoid:
+                if _has_term(_option_name(value), term):
+                    found.add(term)
 
 
 @dataclass
@@ -169,7 +334,7 @@ def iter_menu(menu: dict):
             name = str(info.get("name") or "")
             if not name:
                 continue
-            yield _Product(code, name, _yuan_to_fen(info.get("currentPrice")))
+            yield _Product(code, name, _menu_price_fen(info))
     for code, info in meals.items():
         text = str(code)
         if text in seen or not isinstance(info, dict):
@@ -177,7 +342,7 @@ def iter_menu(menu: dict):
         name = str(info.get("name") or "")
         if not name:
             continue
-        yield _Product(text, name, _yuan_to_fen(info.get("currentPrice")))
+        yield _Product(text, name, _menu_price_fen(info))
 
 
 def _build_cart(product: _Product, detail: dict, spec: Spec, rows: list[dict]) -> _Built:
@@ -188,29 +353,9 @@ def _build_cart(product: _Product, detail: dict, spec: Spec, rows: list[dict]) -
     component_names: list[str] = []
     modification_changed = False
 
-    values = []
-    for option in _modification_values(detail):
-        option_name = _option_name(option)
-        hit = avoid_hit(option_name, spec.avoid, spec.drink)
-        if not hit:
-            continue
-        selected = _as_int(option.get("selectedQuantity"), 1)
-        minimum = _as_int(option.get("minQuantity"), 0)
-        if selected <= 0:
-            continue
-        if minimum > 0:
-            blockers.append(f"无法去掉「{option_name}」")
-            continue
-        code = option.get("code")
-        if code in (None, ""):
-            blockers.append(f"「{option_name}」缺少特调编码")
-            continue
-        entry = {"code": str(code), "quantity": 0}
-        if option.get("unselectedKey") not in (None, ""):
-            entry["key"] = option.get("unselectedKey")
-        values.append(entry)
-        notes.append(f"去掉{option_name}")
-        modification_changed = True
+    values, removal_notes, removal_blockers, modification_changed = _removed_modifications(detail, spec)
+    notes.extend(removal_notes)
+    blockers.extend(removal_blockers)
     if values:
         item["modification"] = {"values": values}
 
@@ -232,12 +377,17 @@ def _build_cart(product: _Product, detail: dict, spec: Spec, rows: list[dict]) -
                 blockers.append("套餐子项缺少编号，无法表达替换")
             continue
         quantity = _as_int(chosen.get("quantity"), 1) or 1
-        round_list.append(
-            {
-                "round": identifier,
-                "comboItemList": [{"code": _option_code(chosen), "quantity": quantity}],
-            }
+        choice_item = {"code": _option_code(chosen), "quantity": quantity}
+        choice_values, choice_notes, choice_blockers, choice_changed = _removed_modifications(
+            {"modification": chosen.get("modification")},
+            spec,
         )
+        notes.extend(choice_notes)
+        blockers.extend(choice_blockers)
+        modification_changed = modification_changed or choice_changed
+        if choice_values:
+            choice_item["modification"] = {"values": choice_values}
+        round_list.append({"round": identifier, "comboItemList": [choice_item]})
         component_names.append(_option_name(chosen))
     if round_list:
         item["roundList"] = round_list
@@ -248,7 +398,7 @@ def _build_cart(product: _Product, detail: dict, spec: Spec, rows: list[dict]) -
         kcal, protein = _sum_nutrition(rows, [name])
     if modification_changed and kcal is not None:
         notes.append("热量未计入配料增减")
-    drink_met = not spec.drink or any(spec.drink in component for component in component_names)
+    drink_met = not spec.drink or any(_has_term(component, spec.drink) for component in component_names)
     if spec.drink and not drink_met and not blockers:
         notes.append(f"没有名称包含「{spec.drink}」的可选项")
     return _Built(
@@ -281,10 +431,12 @@ def _price_cart(built: _Built, catalog: Catalog, ctx: dict, coupons: list, spec:
     best_discount = None
     best_coupon = None
     best_rank = None
+    last_error = None
     for cart_item, coupon in options:
         try:
             payload = catalog.calculate_price(ctx, cart_item)
-        except McpError:
+        except McpError as exc:
+            last_error = str(exc)
             continue
         price = _as_fen(payload.get("price"))
         if price is None:
@@ -303,6 +455,8 @@ def _price_cart(built: _Built, catalog: Catalog, ctx: dict, coupons: list, spec:
         built.discount_fen = best_discount
         if best_coupon is not None:
             built.coupon_title = str(best_coupon.get("title") or "优惠券")
+    elif last_error:
+        built.notes.append(last_error)
 
 
 def _to_plan(built: _Built, spec: Spec, ctx: dict, budget_fen: int | None) -> Plan:
@@ -389,7 +543,7 @@ def _coupon_covers(products, code: str, name: str) -> bool:
         if str(product.get("productCode") or "") == code:
             return True
         title = str(product.get("productName") or "")
-        if title and (title in name or name in title):
+        if title and _fold(title) == _fold(name):
             return True
     return False
 
@@ -406,7 +560,7 @@ def _choose_option(choices: list[dict], avoid: tuple[str, ...], drink: str | Non
     if not viable:
         return None, blocked
     if drink:
-        preferred = [choice for choice in viable if drink in _option_name(choice)]
+        preferred = [choice for choice in viable if _has_term(_option_name(choice), drink)]
         if preferred:
             return preferred[0], None
     defaults = [choice for choice in viable if _is_default(choice)]
@@ -481,6 +635,12 @@ def _is_default(option: dict) -> bool:
         if option.get(key) in (True, 1, "1", "true", "True"):
             return True
     return False
+
+
+def _menu_price_fen(info: dict) -> int | None:
+    # A with-order price only applies together with a membership card.
+    price = info.get("originalPrice") if info.get("withOrder") else info.get("currentPrice")
+    return _yuan_to_fen(price)
 
 
 def _yuan_to_fen(value) -> int | None:

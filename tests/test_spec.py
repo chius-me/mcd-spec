@@ -26,6 +26,7 @@ class SpecTest(unittest.TestCase):
 
     def test_pinned_store_skips_place(self):
         Spec(store_code="S1", be_code="B1").validate(demo=False)
+        Spec(store_code="S1").validate(demo=False)
 
 
 if __name__ == "__main__":
