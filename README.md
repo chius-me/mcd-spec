@@ -1,6 +1,19 @@
+<div align="center">
+
 # mcd-spec
 
 点餐规格编译器。把预算、热量、忌口和优惠券编译成一份已经核过价的麦当劳购物车。
+
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/chius-me/mcd-spec/actions/workflows/ci.yml/badge.svg)](https://github.com/chius-me/mcd-spec/actions)
+![Python](https://img.shields.io/badge/Python-3.11+-3776ab?logo=python&logoColor=white)
+![MCP](https://img.shields.io/badge/Model%20Context%20Protocol-Compatible-brightgreen)
+
+[参赛声明](./CONTEST_DECLARATION.md) · [MCP 接入说明](./MCP_INTEGRATION.md) · [问题反馈](https://github.com/chius-me/mcd-spec/issues)
+
+</div>
+
+---
 
 你说约束，它查门店菜单和营养表，把「不要酸黄瓜」「饮料换无糖」写进套餐的特调和子项，再用麦当劳的 `calculate-price` 算出应付金额。它停在核价，不会下单。
 
@@ -175,3 +188,13 @@ python3 -m mcd_spec compile \
 ```bash
 python3 -m unittest discover -s tests
 ```
+
+---
+
+## 📄 许可证
+
+本项目采用 [MIT 许可证](LICENSE) 开源发布。
+
+<div align="center">
+  <sub>Crafted with ❤️ by <a href="https://chius.cc">Chius</a> · 麦当劳程序员节创意开发大赛参赛作品</sub>
+</div>
